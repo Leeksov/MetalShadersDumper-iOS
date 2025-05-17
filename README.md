@@ -1,28 +1,28 @@
 # MetalShadersDumper-iOS
 
-MetalShadersDumper-iOS — твик для iOS, который перехватывает компиляцию Metal шейдеров в рантайме, логирует исходный код шейдера и сохраняет каждый шейдер в отдельный файл в папке `Documents/MetalShadersDumped`.
+MetalShadersDumper-iOS is an iOS tweak that hooks into the runtime Metal shader compilation process, logs the shader source code, and saves each shader into a separate file inside the `Documents/MetalShadersDumped` folder.
 
 ---
 
-## Особенности
+## Features
 
-- Перехват метода `newLibraryWithSource:options:error:` устройства Metal.
-- Логирование исходного кода шейдера в системный лог.
-- Сохранение каждого шейдера в отдельный файл с порядковым именем (`shader_001.metal`, `shader_002.metal` и т.д.).
-- Автоматическое создание папки для хранения шейдеров, если она отсутствует.
-
----
-
-## Установка и использование
-
-1. Соберите твик с помощью Theos.
-2. Установите твик на джейлбрейк-устройство с Cydia Substrate.
-3. Запустите целевое приложение/игру, использующую Metal.
-4. Всякий раз, когда приложение компилирует шейдер из исходного кода, исходник будет записан в файл и залогирован.
+- Hooks the `newLibraryWithSource:options:error:` method of the Metal device.
+- Logs shader source code to the system log.
+- Saves each shader into a separate file with sequential names (`shader_001.metal`, `shader_002.metal`, etc.).
+- Automatically creates the folder for storing shaders if it does not exist.
 
 ---
 
-## Расположение сохранённых файлов
+## Installation and Usage
 
-Файлы шейдеров сохраняются в: /var/mobile/Containers/Data/Application/<App_UUID>/Documents/MetalShadersDumped/
+1. Build the tweak using Theos.
+2. Install the tweak on a jailbroken device with Cydia Substrate.
+3. Launch the target app/game that uses Metal.
+4. Each time the app compiles a shader from source, the shader source will be saved to a file and logged.
+
+---
+
+## Location of Saved Files
+
+Shader files are saved to: /var/mobile/Containers/Data/Application/<App_UUID>/Documents/MetalShadersDumped/
 
