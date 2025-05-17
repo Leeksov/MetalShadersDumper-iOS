@@ -1,0 +1,8 @@
+Package: com.leeksov.metalshadersdumper
+Name: MetalShadersDumper-iOS
+Version: 0.0.1
+Architecture: iphoneos-arm
+Description: An awesome MetalShadersDumper-iOS!
+Author: Leeksov
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)
