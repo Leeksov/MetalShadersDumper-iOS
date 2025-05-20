@@ -6,6 +6,7 @@
 #import <dlfcn.h>
 #import "SSZipArchive/SSZipArchive.h"
 #import <objc/runtime.h>
+#import "fishhook.h"
 
 static id<MTLDevice> (*orig_MTLCreateSystemDefaultDevice)(void) = NULL;
 static id (*orig_newLibraryWithSource)(id, SEL, NSString *, MTLCompileOptions *, NSError **) = NULL;
@@ -268,20 +269,14 @@ id<MTLDevice> hooked_MTLCreateSystemDefaultDevice(void) {
 @end
 __attribute__((constructor))
 static void substrate_init() {
-    NSLog(@"[MetalShadersDumped] substrate_init called");
-    void *metal_handle = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_NOW);
-    if (!metal_handle) {
-        NSLog(@"[MetalShadersDumped] Failed to open Metal framework");
-        return;
-    }
-    void *orig_func = dlsym(metal_handle, "MTLCreateSystemDefaultDevice");
-    if (!orig_func) {
-        NSLog(@"[MetalShadersDumped] Failed to find MTLCreateSystemDefaultDevice symbol");
-        dlclose(metal_handle);
-        return;
-    }
-    MSHookFunction(orig_func, (void *)hooked_MTLCreateSystemDefaultDevice, (void **)&orig_MTLCreateSystemDefaultDevice);
-    NSLog(@"[MetalShadersDumped] Hooked MTLCreateSystemDefaultDevice");
-    dlclose(metal_handle);
+    NSLog(@"[MetalShadersDumper] substrate_init called");
+
+    struct rebinding rebindings[] = {
+        {"MTLCreateSystemDefaultDevice", (void *)hooked_MTLCreateSystemDefaultDevice, (void **)&orig_MTLCreateSystemDefaultDevice}
+    };
+
+    rebind_symbols(rebindings, 1);
+
+    NSLog(@"[MetalShadersDumper] Hooked MTLCreateSystemDefaultDevice");
     [MetalShadersDumperOverlay addButton];
 }
