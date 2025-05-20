@@ -5,13 +5,12 @@
 #import <substrate.h>
 #import <dlfcn.h>
 #import "SSZipArchive/SSZipArchive.h"
-#import <objc/runtime.h>
-#import "fishhook.h"
 
 static id<MTLDevice> (*orig_MTLCreateSystemDefaultDevice)(void) = NULL;
 static id (*orig_newLibraryWithSource)(id, SEL, NSString *, MTLCompileOptions *, NSError **) = NULL;
 static NSUInteger shaderDumpCounter = 0;
 static NSMutableArray<NSString *> *savedShadersPaths = nil;
+
 static NSString* getCacheDumpFolder() {
     NSString *folder = [[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject]
                         stringByAppendingPathComponent:@"MetalShadersDumped"];
@@ -24,6 +23,7 @@ static NSString* getCacheDumpFolder() {
     }
     return folder;
 }
+
 static NSString* generateShaderFilename(NSString *folder) {
     NSString *filePath;
     NSFileManager *fm = NSFileManager.defaultManager;
@@ -33,6 +33,7 @@ static NSString* generateShaderFilename(NSString *folder) {
     } while ([fm fileExistsAtPath:filePath]);
     return filePath;
 }
+
 id hooked_newLibraryWithSource(id self, SEL _cmd, NSString *source, MTLCompileOptions *options, NSError **error) {
     NSLog(@"[MetalShadersDumped] Compiling shader source...");
     NSString *folder = getCacheDumpFolder();
@@ -49,6 +50,7 @@ id hooked_newLibraryWithSource(id self, SEL _cmd, NSString *source, MTLCompileOp
     }
     return orig_newLibraryWithSource(self, _cmd, source, options, error);
 }
+
 id<MTLDevice> hooked_MTLCreateSystemDefaultDevice(void) {
     id<MTLDevice> device = orig_MTLCreateSystemDefaultDevice();
     if (device) {
@@ -77,11 +79,15 @@ id<MTLDevice> hooked_MTLCreateSystemDefaultDevice(void) {
                                                                             target:self
                                                                             action:@selector(closeTapped)];
     self.navigationItem.rightBarButtonItems = @[
-        [[UIBarButtonItem alloc] initWithTitle:@"Export All"
-                                         style:UIBarButtonItemStylePlain
-                                        target:self
-                                        action:@selector(exportAllShaders)]
-    ];
+    [[UIBarButtonItem alloc] initWithTitle:@"Export All"
+                                     style:UIBarButtonItemStylePlain
+                                    target:self
+                                    action:@selector(exportAllShaders)],
+    [[UIBarButtonItem alloc] initWithTitle:@"Delete"
+                                     style:UIBarButtonItemStylePlain
+                                    target:self
+                                    action:@selector(deleteAllShaders)]
+];
     [self reloadShadersList];
     self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:3.0
                                                          target:self
@@ -119,6 +125,56 @@ id<MTLDevice> hooked_MTLCreateSystemDefaultDevice(void) {
         else return NSOrderedSame;
     }] mutableCopy];
     [self.tableView reloadData];
+}
+
+- (void)deleteAllShaders {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Confirm Delete"
+                                                                   message:@"Delete ALL dumped shaders?"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Delete" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [self performDeleteAllShaders];
+    }]];
+    
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)performDeleteAllShaders {
+    NSString *folder = getCacheDumpFolder();
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSError *error = nil;
+    NSArray *files = [fm contentsOfDirectoryAtPath:folder error:&error];
+    
+    if (error) {
+        NSLog(@"[MetalShadersDumped] Failed to list files: %@", error);
+        return;
+    }
+    
+    BOOL success = YES;
+    for (NSString *file in files) {
+        NSString *filePath = [folder stringByAppendingPathComponent:file];
+        if (![fm removeItemAtPath:filePath error:&error]) {
+            NSLog(@"[MetalShadersDumped] Failed to delete %@: %@", file, error);
+            success = NO;
+        }
+    }
+    
+    if (success) {
+        @synchronized(savedShadersPaths) {
+            [savedShadersPaths removeAllObjects];
+        }
+        shaderDumpCounter = 0;
+        [self reloadShadersList];
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Success"
+                                                                           message:@"All shaders deleted"
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        });
+    }
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     return self.shadersPaths.count;
@@ -269,14 +325,20 @@ id<MTLDevice> hooked_MTLCreateSystemDefaultDevice(void) {
 @end
 __attribute__((constructor))
 static void substrate_init() {
-    NSLog(@"[MetalShadersDumper] substrate_init called");
-
-    struct rebinding rebindings[] = {
-        {"MTLCreateSystemDefaultDevice", (void *)hooked_MTLCreateSystemDefaultDevice, (void **)&orig_MTLCreateSystemDefaultDevice}
-    };
-
-    rebind_symbols(rebindings, 1);
-
-    NSLog(@"[MetalShadersDumper] Hooked MTLCreateSystemDefaultDevice");
+    NSLog(@"[MetalShadersDumped] substrate_init called");
+    void *metal_handle = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_NOW);
+    if (!metal_handle) {
+        NSLog(@"[MetalShadersDumped] Failed to open Metal framework");
+        return;
+    }
+    void *orig_func = dlsym(metal_handle, "MTLCreateSystemDefaultDevice");
+    if (!orig_func) {
+        NSLog(@"[MetalShadersDumped] Failed to find MTLCreateSystemDefaultDevice symbol");
+        dlclose(metal_handle);
+        return;
+    }
+    MSHookFunction(orig_func, (void *)hooked_MTLCreateSystemDefaultDevice, (void **)&orig_MTLCreateSystemDefaultDevice);
+    NSLog(@"[MetalShadersDumped] Hooked MTLCreateSystemDefaultDevice");
+    dlclose(metal_handle);
     [MetalShadersDumperOverlay addButton];
 }
